@@ -61,4 +61,4 @@ This project is private and for personal or internal use only.
 
 ---
 
-Made with ❤️ by [Your Name]
+Made with ❤️ by Project Maker
