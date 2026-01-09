@@ -246,7 +246,7 @@ elif selected_tab == "🗂️ Add Project":
                 if rc2.button("Mark as Done", key=f"project_done_{row['id']}", help="Mark as Done"):
                     update_project_status(row['id'], True)
                     st.rerun()
-                st.divider()
+            st.divider()
 
 elif selected_tab == "📊 Analytics":
     habits = load_habits()
