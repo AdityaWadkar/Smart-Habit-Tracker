@@ -3,8 +3,8 @@ import pandas as pd
 import datetime
 from src.database import init_db
 from src.data_manager import (
-    load_habits, load_logs, add_habit, log_habit_completion, delete_habit, edit_habit,
-    add_reminder, get_reminders, update_reminder_status, delete_reminder
+    add_project, get_projects, load_habits, load_logs, add_habit, log_habit_completion, delete_habit, edit_habit,
+    add_reminder, get_reminders, update_project_status, update_reminder_status, delete_reminder
 )
 from src.ui_components import render_add_habit_form, render_habit_card, render_edit_habit_form
 from src.analytics import render_analytics
@@ -31,7 +31,7 @@ if "db_initialized" not in st.session_state:
 # Navigation
 selected_tab = st.radio(
     "Navigation", 
-    ["🔥 Dashboard", "➕ Add Habit", "📝 Reminders", "📊 Analytics", "⚙️ Settings"], 
+    ["🔥 Dashboard", "➕ Add Habit", "📝 Add Reminder", "🗂️ Add Project", "📊 Analytics", "⚙️ Settings"], 
     horizontal=True,
     label_visibility="collapsed"
 )
@@ -74,6 +74,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if selected_tab == "🔥 Dashboard":
+    # --- 0. Projects Section ---
+    projects = get_projects(pending_only=True)
+    if not projects.empty:
+        st.markdown("### 🗂️ Pending Projects")
+        for idx, row in projects.iterrows():
+            # Determine icon for CSS targeting
+            icon = "🚨" if row['priority'] == 'high' else "⚠️" if row['priority'] == 'medium' else "🟢"
+            
+            with st.container(border=True):
+                c1, c2 = st.columns([6, 1])
+                with c1:
+                    # Emoji must be present for :has() selector to work
+                    st.markdown(f" <b style='font-size: 1.5rem;'>{icon} {row['text']}</b>", unsafe_allow_html=True)
+                with c2:
+                    if st.button("Done", key=f"dash_project_{row['id']}", help="Mark Done"):
+                        update_project_status(row['id'], True)
+                        st.rerun()
+
     # --- 1. Reminders Section ---
     reminders = get_reminders(pending_only=True)
     if not reminders.empty:
@@ -151,23 +169,25 @@ elif selected_tab == "➕ Add Habit":
         else:
             st.error("Failed to save habit.")
 
-elif selected_tab == "📝 Reminders":
+elif selected_tab == "📝 Add Reminder":
     st.write("### 🧠 Sticky Reminders")
     st.caption("A place for non-habit tasks like 'Call Mom' or 'Pay Bills'")
     
     # Input
-    c1, c2, c3 = st.columns([3, 1, 1])
+    
+    # with c1:
+    new_reminder = st.text_input("New Reminder", label_visibility="collapsed", placeholder="What needs to be done?")
+
+    c1, c2 = st.columns([3, 1],gap="large")
     with c1:
-        new_reminder = st.text_input("New Reminder", label_visibility="collapsed", placeholder="What needs to be done?")
-    with c2:
         priority = st.selectbox("Priority", ["High", "Medium", "Low"], label_visibility="collapsed", index=1) # Default Medium
-    with c3:
-        if st.button("Add Task", width=True):
+    with c2:
+        if st.button("Add Reminder", width="content",type="primary",icon="⭐️"):
             if new_reminder:
                 if add_reminder(new_reminder, priority.lower()):
                     st.toast("Reminder added!")
                     st.rerun()
-    
+
     st.divider()
     
     # List Reminders
@@ -175,17 +195,56 @@ elif selected_tab == "📝 Reminders":
     if reminders.empty:
         st.info("No active reminders. You're free! 🎉")
     else:
+        st.subheader("⚠️ Pending Reminders")
         for idx, row in reminders.iterrows():
             # Styling based on priority
             p_color = "#FFCDD2" if row['priority'] == 'high' else "#E1BEE7" if row['priority'] == 'medium' else "#C8E6C9"
             p_emoji = "🔴" if row['priority'] == 'high' else "🟡" if row['priority'] == 'medium' else "🟢"
             
             with st.container():
-                rc1, rc2, rc3 = st.columns([0.5, 6, 1])
-                rc1.write(f"### {p_emoji}")
-                rc2.write(f"**{row['text']}**")
-                if rc3.button("✔️", key=f"rem_done_{row['id']}", help="Mark as Done"):
+                rc1, rc2 = st.columns([2, 1])
+                rc1.markdown(f" <b style='font-size: 1.5rem;'>{p_emoji} {row['text']}</b>", unsafe_allow_html=True)
+                if rc2.button("mark as Done", key=f"rem_done_{row['id']}", help="Mark as Done"):
                     update_reminder_status(row['id'], True)
+                    st.rerun()
+        st.divider()
+
+elif selected_tab == "🗂️ Add Project":
+    st.write("### 🗂️ Add Projects")
+    st.caption("A place to track larger tasks(projects) or goals.")
+    new_project = st.text_input("On which project do you wish to work?", placeholder="e.g. smart habit tracker").strip()
+    # Input
+    c1, c2 = st.columns([3,2])
+    with c1:
+        new_project_description = st.text_input("Description", placeholder="Add a brief description (optional)")
+    with c2:
+        priority = st.selectbox("Priority", ["High", "Medium", "Low"], index=1) # Default Medium
+
+    if st.button("Add Project", width='content',type="primary",icon="📁"):
+        if new_project:
+            if add_project(new_project, new_project_description,priority.lower()):
+                st.toast("Project added!")
+                st.rerun()
+        
+    st.divider()
+
+    # List Projects
+    projects = get_projects(pending_only=True)
+    if projects.empty:
+        st.info("No active Projects. You're free! 🎉")
+    else:
+        st.subheader("⚠️ Pending Projects")
+        for idx, row in projects.iterrows():
+            # Styling based on priority
+            p_color = "#FFCDD2" if row['priority'] == 'high' else "#E1BEE7" if row['priority'] == 'medium' else "#C8E6C9"
+            p_emoji = "🟥" if row['priority'] == 'high' else "🟨" if row['priority'] == 'medium' else "🟩"
+            
+            with st.container():
+                rc1, rc2 = st.columns([6, 1])
+                
+                rc1.markdown(f" <b style='font-size: 1.5rem;'>{p_emoji} {row['text']}</b>", unsafe_allow_html=True)
+                if rc2.button("✔️", key=f"project_done_{row['id']}", help="Mark as Done"):
+                    update_project_status(row['id'], True)
                     st.rerun()
                 st.divider()
 

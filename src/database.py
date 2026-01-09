@@ -65,6 +65,18 @@ def init_db():
         )
     ''')
 
+    # Project Table (New Feature)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            description TEXT,
+            priority TEXT DEFAULT 'medium',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_completed BOOLEAN DEFAULT 0
+        )
+    ''')
+
     # Gamification: User Progress Table (New Feature)
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_progress (

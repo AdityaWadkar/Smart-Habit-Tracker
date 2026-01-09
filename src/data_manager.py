@@ -122,7 +122,7 @@ def get_habit_stats(habit_id):
 
 # --- Reminder System ---
 
-def add_reminder(text, priority='medium'):
+def add_reminder(text, priority='low'):
     query = "INSERT INTO reminders (text, priority) VALUES (?, ?)"
     try:
         run_query(query, (text, priority))
@@ -152,6 +152,42 @@ def delete_reminder(reminder_id):
     query = "DELETE FROM reminders WHERE id = ?"
     try:
         run_query(query, (reminder_id,))
+        return True
+    except:
+        return False
+    
+# --- Project Reminder System ---
+
+def add_project(text, description, priority='low'):
+    query = "INSERT INTO projects (text, description, priority) VALUES (?, ?, ?)"
+    try:
+        run_query(query, (text, description, priority))
+        return True
+    except Exception as e:
+        st.error(f"Error adding project: {e}")
+        return False
+
+def get_projects(pending_only=True):
+    query = "SELECT * FROM projects"
+    if pending_only:
+        query += " WHERE is_completed = 0"
+    query += " ORDER BY created_at DESC"
+    return run_query(query, return_df=True)
+
+def update_project_status(project_id, is_completed=True):
+    # Using 1/0 for boolean in SQLite
+    val = 1 if is_completed else 0
+    query = "UPDATE projects SET is_completed = ? WHERE id = ?"
+    try:
+        run_query(query, (val, project_id))
+        return True
+    except:
+        return False
+
+def delete_project(project_id):
+    query = "DELETE FROM projects WHERE id = ?"
+    try:
+        run_query(query, (project_id,))
         return True
     except:
         return False
