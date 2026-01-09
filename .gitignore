@@ -16,7 +16,6 @@ ENV/
 .env.local
 
 # Database
-data/*.db
 data/*.db-journal
 *.sqlite
 *.sqlite3
