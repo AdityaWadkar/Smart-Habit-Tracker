@@ -243,7 +243,7 @@ elif selected_tab == "🗂️ Add Project":
                 rc1, rc2 = st.columns([6, 1])
                 
                 rc1.markdown(f" <b style='font-size: 1.5rem;'>{p_emoji} {row['text']}</b>", unsafe_allow_html=True)
-                if rc2.button("✔️", key=f"project_done_{row['id']}", help="Mark as Done"):
+                if rc2.button("Mark as Done", key=f"project_done_{row['id']}", help="Mark as Done"):
                     update_project_status(row['id'], True)
                     st.rerun()
                 st.divider()
