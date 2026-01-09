@@ -182,7 +182,7 @@ elif selected_tab == "📝 Add Reminder":
     with c1:
         priority = st.selectbox("Priority", ["High", "Medium", "Low"], label_visibility="collapsed", index=1) # Default Medium
     with c2:
-        if st.button("Add Reminder", width="content",type="primary",icon="⭐️"):
+        if st.button("Add Reminder", use_container_width=False,type="primary",icon="⭐️"):
             if new_reminder:
                 if add_reminder(new_reminder, priority.lower()):
                     st.toast("Reminder added!")
@@ -220,7 +220,7 @@ elif selected_tab == "🗂️ Add Project":
     with c2:
         priority = st.selectbox("Priority", ["High", "Medium", "Low"], index=1) # Default Medium
 
-    if st.button("Add Project", width='content',type="primary",icon="📁"):
+    if st.button("Add Project", use_container_width=False,type="primary",icon="📁"):
         if new_project:
             if add_project(new_project, new_project_description,priority.lower()):
                 st.toast("Project added!")
