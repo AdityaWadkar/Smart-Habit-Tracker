@@ -234,7 +234,7 @@ elif selected_tab == "📝 Add Reminder":
     with c1:
         st.selectbox("Priority", ["High", "Medium", "Low"], label_visibility="collapsed", index=1, key="rem_priority")
     with c2:
-        st.button("Add Reminder", width='content', type="primary", on_click=add_reminder_callback)
+        st.button("Add Reminder", on_click=add_reminder_callback)
 
     st.divider()
     
@@ -290,7 +290,7 @@ elif selected_tab == "🗂️ Add Project":
     with c2:
         st.selectbox("Priority", ["High", "Medium", "Low"], index=1, key="proj_priority")
 
-    st.button("Add Project", width='content', type="primary", on_click=add_project_callback)
+    st.button("Add Project", on_click=add_project_callback)
         
     st.divider()
     

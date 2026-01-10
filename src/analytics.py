@@ -109,7 +109,10 @@ def calculate_missed_habits(habits, logs, days=30):
                 "Miss Rate": (missed_count/total_due*100) if total_due > 0 else 0
             })
             
-    return pd.DataFrame(missed_data).sort_values("Missed", ascending=False)
+    df = pd.DataFrame(missed_data)
+    if "Missed" in df.columns:
+        return df.sort_values("Missed", ascending=False)
+    return df
 
 def get_day_of_week_stats(logs):
     """
