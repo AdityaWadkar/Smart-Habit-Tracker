@@ -12,7 +12,6 @@ def calculate_streaks(habit, habit_logs):
         return 0
     
     today = pd.Timestamp.now().date()
-    # Parse created_at safely
     try:
         created_at = pd.to_datetime(habit['created_at']).date()
     except:
@@ -30,22 +29,14 @@ def calculate_streaks(habit, habit_logs):
         
     if not due_dates: return 0
     
-    # Sort descending (latest first)
     due_dates.sort(reverse=True)
-    
-    # Check logs for these dates
     logged_dates = set(pd.to_datetime(habit_logs['date']).dt.date)
     
     streak = 0
-    
     for d in due_dates:
         if d in logged_dates:
             streak += 1
         else:
-            # If d is TODAY and not logged, we don't break streak yet IF user hasn't finished day
-            # But technically streak is "consecutive completed". 
-            # If I haven't done today, my streak is technically "pending".
-            # Standard logic: If today is missed, streak doesn't reset until tomorrow.
             if d == today:
                 continue
             else:
@@ -65,7 +56,6 @@ def calculate_completion_rate(habit, habit_logs):
     if created_at > today: return 0.0, 0
     
     total_due = 0
-    
     curr = created_at
     while curr <= today:
         if is_habit_due(habit, curr):
@@ -75,62 +65,140 @@ def calculate_completion_rate(habit, habit_logs):
     completed_count = len(habit_logs['date'].unique()) 
     
     if total_due == 0: return 0.0, 0
-    
-    # Cap at 100% just in case
     pct = min(100.0, (completed_count / total_due) * 100)
     return pct, total_due
 
+def calculate_missed_habits(habits, logs, days=30):
+    """
+    Identify habits missed most frequently in the last X days.
+    """
+    today = pd.Timestamp.now().date()
+    start_date = today - timedelta(days=days)
+    
+    missed_data = []
+    
+    for _, habit in habits.iterrows():
+        missed_count = 0
+        total_due = 0
+        
+        # Determine habit start (cannot miss before created)
+        try:
+            h_created = pd.to_datetime(habit['created_at']).date()
+        except:
+            h_created = start_date
+            
+        check_start = max(start_date, h_created)
+        
+        # Iterate days
+        curr = check_start
+        habit_logs = logs[logs['habit_id'] == habit['id']]
+        logged_dates = set(pd.to_datetime(habit_logs['date']).dt.date) if not habit_logs.empty else set()
+        
+        while curr < today: # Don't count today as missed yet
+            if is_habit_due(habit, curr):
+                total_due += 1
+                if curr not in logged_dates:
+                    missed_count += 1
+            curr += timedelta(days=1)
+            
+        if missed_count > 0:
+            missed_data.append({
+                "Habit": habit['name'],
+                "Missed": missed_count,
+                "Total Due": total_due,
+                "Miss Rate": (missed_count/total_due*100) if total_due > 0 else 0
+            })
+            
+    return pd.DataFrame(missed_data).sort_values("Missed", ascending=False)
+
+def get_day_of_week_stats(logs):
+    """
+    Return total completions by day of week (Mon=0, Sun=6).
+    """
+    if logs.empty:
+        return pd.DataFrame()
+        
+    df = logs.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df['day_name'] = df['date'].dt.day_name()
+    # Ensure correct order
+    days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    stats = df['day_name'].value_counts().reindex(days_order, fill_value=0).reset_index()
+    stats.columns = ['Day', 'Completions']
+    return stats
+
 def render_analytics(habits, logs):
     if habits.empty:
-        st.info("No data yet.")
+        st.info("No data yet. Start tracking habits!")
         return
 
-    st.subheader("📊 Habit Performance")
+    st.subheader("📊 Analytics Dashboard")
     
+    # --- GLOBAL METRICS ---
+    total_logs = len(logs)
+    active_habits = len(habits)
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Active Habits", active_habits)
+    m2.metric("Total Check-ins", total_logs)
+    
+    # Calculate per-habit metrics for table
     metrics = []
-    
     for _, habit in habits.iterrows():
         habit_logs = logs[logs['habit_id'] == habit['id']]
         streak = calculate_streaks(habit, habit_logs)
-        rate, total_due = calculate_completion_rate(habit, habit_logs)
-        
+        rate, _ = calculate_completion_rate(habit, habit_logs)
         metrics.append({
             "Name": habit['name'],
             "Streak": streak,
-            "Completion Rate": rate,
-            "Total Completions": len(habit_logs)
+            "Completion Rate": rate
         })
-    
     df_metrics = pd.DataFrame(metrics)
     
-    # KPIs
-    c1, c2, c3 = st.columns(3)
+    avg_rate = df_metrics['Completion Rate'].mean() if not df_metrics.empty else 0
+    m3.metric("Avg Completion Rate", f"{avg_rate:.1f}%")
+    
+    st.divider()
+
+    # --- 1. TOP STRUGGLES ---
+    c1, c2 = st.columns([1, 1])
+    
+    with c1:
+        st.markdown("### ⚠️ Top Struggles (Last 30 Days)")
+        st.caption("Habits you missed the most recently.")
+        missed_df = calculate_missed_habits(habits, logs)
+        
+        if not missed_df.empty:
+            st.dataframe(
+                missed_df[['Habit', 'Missed', 'Miss Rate']].style.format({"Miss Rate": "{:.1f}%"}),
+                width="stretch",
+                hide_index=True
+            )
+        else:
+            st.success("🎉 No missed habits in the last 30 days! Perfect record!")
+
+    # --- 2. WEEKLY RHYTHM ---
+    with c2:
+        st.markdown("### 📅 Weekly Rhythm")
+        st.caption("Which days are you most consistent?")
+        day_stats = get_day_of_week_stats(logs)
+        
+        if not day_stats.empty:
+            fig = px.bar(day_stats, x='Day', y='Completions', 
+                         color='Completions', color_continuous_scale='Viridis')
+            fig.update_layout(xaxis_title=None, yaxis_title=None, showlegend=False, height=300)
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.info("Not enough data to show weekly rhythm.")
+
+    st.divider()
+
+    # --- 3. HABIT PERFORMANCE TABLE ---
+    st.markdown("### 🏆 Habit Leaderboard")
     if not df_metrics.empty:
-        max_streak = df_metrics['Streak'].max()
-        most_consistent = df_metrics.sort_values("Completion Rate", ascending=False).iloc[0]['Name']
-        total_checkins = df_metrics['Total Completions'].sum()
-    else:
-        max_streak, most_consistent, total_checkins = 0, "-", 0
-    
-    c1.metric("Longest Active Streak", max_streak)
-    c2.metric("Most Consistent Habit", most_consistent)
-    c3.metric("Total Check-ins", total_checkins)
-    
-    # 🌟 Compliment logic
-    if not df_metrics.empty:
-        top_habit = df_metrics.sort_values("Completion Rate", ascending=False).iloc[0]
-        if top_habit['Completion Rate'] > 80:
-            st.success(f"🌟 Amazing discipline with **{top_habit['Name']}**! You are building a rock-solid routine.")
-        elif top_habit['Completion Rate'] > 50:
-            st.info(f"👍 Good job keeping up with **{top_habit['Name']}**. Consistency is key!")
-    
-    # Charts
-    st.write("### Consistency Trends")
-    fig = px.bar(df_metrics, x='Name', y='Completion Rate', color='Streak', title="Completion Rate % by Habit")
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Table
-    st.dataframe(
-        df_metrics.style.format({"Completion Rate": "{:.1f}%"}), 
-        use_container_width=True
-    )
+        st.dataframe(
+            df_metrics.sort_values("Completion Rate", ascending=False).style.format({"Completion Rate": "{:.1f}%"}),
+            width="stretch",
+            hide_index=True
+        )

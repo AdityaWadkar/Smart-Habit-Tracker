@@ -1,10 +1,69 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import json
 from src.database import run_query, init_db
+from src.gamification import calculate_xp_gain, get_level_info, BADGES
 
-# Initialize DB on first load of this module
+# --- GAMIFICATION DB ---
+def init_gamification_db():
+    """Ensure user_progress table exists with correct schema."""
+    # 1. Create table with minimal schema if it doesn't exist
+    query = """
+        CREATE TABLE IF NOT EXISTS user_progress (
+            id INTEGER PRIMARY KEY,
+            total_xp INTEGER DEFAULT 0
+        )
+    """
+    run_query(query)
+    
+    # 2. Check schema using PRAGMA (Robust Migration)
+    # run_query returns list of sqlite3.Row objects (behaving like dicts)
+    res = run_query("PRAGMA table_info(user_progress)")
+    existing_columns = [row['name'] for row in res] if res else []
+    
+    if "unlocked_badges" not in existing_columns:
+        try:
+            run_query("ALTER TABLE user_progress ADD COLUMN unlocked_badges TEXT DEFAULT '[]'")
+        except Exception as e:
+            st.error(f"Migration failed: {e}")
+
+    # 3. Ensure raw row exists
+    check = run_query("SELECT id FROM user_progress WHERE id = 1")
+    if not check:
+        # Safe insert now that column exists
+        run_query("INSERT INTO user_progress (id, total_xp, unlocked_badges) VALUES (1, 0, '[]')")
+
+# Initialize DBs
 init_db()
+init_gamification_db()
+
+def get_user_progress():
+    """Fetch current user progress."""
+    res = run_query("SELECT total_xp, unlocked_badges FROM user_progress WHERE id = 1")
+    if res:
+        xp, badges_json = res[0]
+        return {"total_xp": xp, "unlocked_badges": json.loads(badges_json)}
+    return {"total_xp": 0, "unlocked_badges": []}
+
+def update_user_progress(xp_delta, new_badges=None):
+    """Add XP and save new badges."""
+    curr = get_user_progress()
+    new_xp = curr['total_xp'] + xp_delta
+    badges = curr['unlocked_badges']
+    
+    if new_badges:
+        for b in new_badges:
+            if b not in badges:
+                badges.append(b)
+    
+    run_query(
+        "UPDATE user_progress SET total_xp = ?, unlocked_badges = ? WHERE id = 1",
+        (new_xp, json.dumps(badges))
+    )
+    return new_xp, badges
+
+# --- HABITS ---
 
 def load_habits(active_only=True):
     """Load all habits from SQLite."""
@@ -87,15 +146,18 @@ def delete_habit(habit_id):
         return False
 
 def log_habit_completion(habit_id, date, status="Completed", notes="", value=1):
-    """Log a habit completion, strictly preventing duplicates for the same day."""
+    """
+    Log a habit completion and process Gamification rewards.
+    Returns: (bool, dict) -> (Success, RewardInfo)
+    RewardInfo keys: 'xp_earned', 'new_level', 'new_badges'
+    """
     
     # Check for existing log for this habit and date
     check_query = "SELECT id FROM logs WHERE habit_id = ? AND date = ?"
     existing = run_query(check_query, (habit_id, str(date)))
     
     if existing:
-        # Already logged
-        return False
+        return False, {}
         
     query = """
         INSERT INTO logs (habit_id, date, status, notes, value)
@@ -103,10 +165,74 @@ def log_habit_completion(habit_id, date, status="Completed", notes="", value=1):
     """
     try:
         run_query(query, (habit_id, str(date), status, notes, value))
-        return True
+        
+        # --- GAMIFICATION LOGIC ---
+        # 1. Calculate Streak (Approximate for speed, or fetch logs)
+        # To be accurate, we really need the logs.
+        # But we can assume if they logged today, we just need to know the PREVIOUS streak.
+        # Let's verify via full calc or just assume +1 for now to keep it snappy?
+        # No, user wants rewards for streaks. We need to calculate it.
+        # We'll do a quick query for this habit's logs.
+        
+        # We need the HABIT object to calculate streak (for frequency).
+        # Fetch habit
+        h_res = run_query("SELECT * FROM habits WHERE id = ?", (habit_id,), return_df=True)
+        if not h_res.empty:
+            habit = h_res.iloc[0]
+            # Fetch all logs for this habit
+            l_res = run_query("SELECT * FROM logs WHERE habit_id = ?", (habit_id,), return_df=True)
+            
+            # Use analytics (imported locally to avoid circular deps)
+            from src.analytics import calculate_streaks
+            current_streak = calculate_streaks(habit, l_res)
+            # Previous streak was current - 1 (since we just logged)
+            prev_streak = max(0, current_streak - 1)
+            
+            xp = calculate_xp_gain(current_streak, prev_streak)
+            
+            # --- BADGE CHECKS ---
+            candidate_badges = []
+            curr_progress = get_user_progress()
+            existing_badges = curr_progress['unlocked_badges']
+            
+            # 1. Streak Badges
+            if current_streak == 7: candidate_badges.append('week_warrior')
+            if current_streak == 30: candidate_badges.append('month_master')
+            
+            # 2. First Step (If XP is 0, this is the first completion)
+            if curr_progress['total_xp'] == 0:
+                candidate_badges.append('first_step')
+                
+            # 3. Hat Trick (3rd completion today)
+            # We just inserted the log, so count should include it.
+            day_count_res = run_query("SELECT COUNT(*) FROM logs WHERE date = ?", (str(date),))
+            if day_count_res and day_count_res[0][0] == 3:
+                candidate_badges.append('hat_trick')
+                
+            # Filter only truly new badges
+            new_badges_unlocked = [b for b in candidate_badges if b not in existing_badges]
+            
+            # Update User
+            new_xp_total, _ = update_user_progress(xp, new_badges_unlocked)
+            
+            # Check Level Up
+            curr_lvl, next_lvl = get_level_info(new_xp_total)
+            prev_lvl, _ = get_level_info(new_xp_total - xp)
+            
+            level_up = (curr_lvl['level'] > prev_lvl['level'])
+            
+            return True, {
+                "xp_earned": xp,
+                "level_up": level_up,
+                "current_level": curr_lvl,
+                "new_badges": new_badges_unlocked
+            }
+            
+        return True, {"xp_earned": 0}
+        
     except Exception as e:
         st.error(f"Error logging habit: {e}")
-        return False
+        return False, {}
 
 def get_habit_stats(habit_id):
     """Get simple stats for a habit."""

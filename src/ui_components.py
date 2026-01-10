@@ -185,7 +185,10 @@ def render_habit_card(habit, logs, on_complete):
                 st.button("✅", key=f"btn_done_{habit['id']}", disabled=True)
             else:
                 if st.button("Done", key=f"btn_{habit['id']}", help="Mark as Done"):
-                    if on_complete(habit['id'], today):
+                    # on_complete is log_habit_completion (returns success, reward_dict)
+                    success, reward = on_complete(habit['id'], today)
+                    if success:
+                        st.session_state.latest_reward = reward
                         st.rerun()
 
 def get_category_color(category):

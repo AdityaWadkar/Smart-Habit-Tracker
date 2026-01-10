@@ -73,7 +73,48 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+from src.gamification import get_level_info
+
 if selected_tab == "🔥 Dashboard":
+    # --- GAMIFICATION HEADER ---
+    from src.data_manager import get_user_progress
+    user_progress = get_user_progress()
+    curr_lvl, next_lvl = get_level_info(user_progress['total_xp'])
+    
+    # Calculate Progress %
+    if next_lvl:
+        needed = next_lvl['xp_required'] - curr_lvl['xp_required']
+        current = user_progress['total_xp'] - curr_lvl['xp_required']
+        # clamp between 0 and 1
+        progress_val = min(1.0, max(0.0, current / needed)) if needed > 0 else 1.0
+        str_progress = f"{user_progress['total_xp']} / {next_lvl['xp_required']} XP"
+    else:
+        progress_val = 1.0
+        str_progress = "Max Level Reached!"
+
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            st.metric("Level", f"{curr_lvl['level']}", curr_lvl['name'])
+        with c2:
+            st.write(f"**XP Progress** ({str_progress})")
+            st.progress(progress_val)
+    
+    st.divider()
+
+    # --- REWARD POPUP SYSTEM ---
+    if "latest_reward" in st.session_state:
+        reward = st.session_state.latest_reward
+        xp = reward.get('xp_earned', 0)
+        st.toast(f"Heroic! +{xp} XP 🌟")
+        
+        if reward.get('level_up'):
+            st.balloons()
+            lvl = reward['current_level']
+            st.success(f"🎉 **LEVEL UP!** You are now a **{lvl['name']}** (Level {lvl['level']})!")
+            
+        del st.session_state['latest_reward']
+
     # --- 0. Projects Section ---
     projects = get_projects(pending_only=True)
     if not projects.empty:
@@ -158,7 +199,6 @@ elif selected_tab == "➕ Add Habit":
     
     if "habit_success" in st.session_state:
         st.success(st.session_state.habit_success)
-        st.balloons()
         del st.session_state["habit_success"]
         
     habit_data = render_add_habit_form()
@@ -173,20 +213,28 @@ elif selected_tab == "📝 Add Reminder":
     st.write("### 🧠 Sticky Reminders")
     st.caption("A place for non-habit tasks like 'Call Mom' or 'Pay Bills'")
     
-    # Input
+    # Callback for adding reminder safely
+    def add_reminder_callback():
+        text = st.session_state.get("rem_input", "").strip()
+        priority = st.session_state.get("rem_priority", "Medium")
+        
+        if text:
+            if add_reminder(text, priority.lower()):
+                st.toast("Reminder added successfully! 🚀")
+                st.session_state.rem_input = "" # Clear input safely
+            else:
+                st.error("Failed to add reminder.")
+        # No else needed, empty input does nothing
+
+    if "rem_input" not in st.session_state: st.session_state.rem_input = ""
     
-    # with c1:
-    new_reminder = st.text_input("New Reminder", label_visibility="collapsed", placeholder="What needs to be done?")
+    st.text_input("New Reminder", label_visibility="collapsed", placeholder="What needs to be done?", key="rem_input")
 
     c1, c2 = st.columns([3, 1],gap="large")
     with c1:
-        priority = st.selectbox("Priority", ["High", "Medium", "Low"], label_visibility="collapsed", index=1) # Default Medium
+        st.selectbox("Priority", ["High", "Medium", "Low"], label_visibility="collapsed", index=1, key="rem_priority")
     with c2:
-        if st.button("Add Reminder", use_container_width=False,type="primary"):
-            if new_reminder:
-                if add_reminder(new_reminder, priority.lower()):
-                    st.toast("Reminder added!")
-                    st.rerun()
+        st.button("Add Reminder", width='content', type="primary", on_click=add_reminder_callback)
 
     st.divider()
     
@@ -197,37 +245,55 @@ elif selected_tab == "📝 Add Reminder":
     else:
         st.subheader("⚠️ Pending Reminders")
         for idx, row in reminders.iterrows():
-            # Styling based on priority
-            p_color = "#FFCDD2" if row['priority'] == 'high' else "#E1BEE7" if row['priority'] == 'medium' else "#C8E6C9"
-            p_emoji = "🔴" if row['priority'] == 'high' else "🟡" if row['priority'] == 'medium' else "🟢"
+            # Determine icon for CSS targeting
+            icon = "🚨" if row['priority'] == 'high' else "⚠️" if row['priority'] == 'medium' else "🟢"
             
-            with st.container():
-                rc1, rc2 = st.columns([2, 1])
-                rc1.markdown(f" <b style='font-size: 1.5rem;'>{p_emoji} {row['text']}</b>", unsafe_allow_html=True)
-                if rc2.button("mark as Done", key=f"rem_done_{row['id']}", help="Mark as Done"):
-                    update_reminder_status(row['id'], True)
-                    st.rerun()
+            # Layout: Box with colored background via CSS
+            with st.container(border=True):
+                c1, c2 = st.columns([6, 1])
+                with c1:
+                    # Emoji must be present for :has() selector to work
+                    st.markdown(f"**{icon} {row['text']}**")
+                with c2:
+                    if st.button("Done", key=f"dash_rem_{row['id']}", help="Mark Done"):
+                        update_reminder_status(row['id'], True)
+                        st.rerun()
         st.divider()
 
 elif selected_tab == "🗂️ Add Project":
     st.write("### 🗂️ Add Projects")
-    st.caption("A place to track larger tasks(projects) or goals.")
-    new_project = st.text_input("On which project do you wish to work?", placeholder="e.g. smart habit tracker").strip()
-    # Input
+    st.caption("A place to track larger tasks (projects) or goals.")
+    
+    def add_project_callback():
+        title = st.session_state.get("proj_title", "").strip()
+        desc = st.session_state.get("proj_desc", "").strip()
+        priority = st.session_state.get("proj_priority", "Medium")
+        
+        if title:
+            if add_project(title, desc, priority.lower()):
+                st.toast("Project added successfully! 🚀")
+                st.session_state.proj_title = ""
+                st.session_state.proj_desc = ""
+            else:
+                st.error("Failed to add project.")
+        else:
+            st.warning("Project title is required.")
+
+    if "proj_title" not in st.session_state: st.session_state.proj_title = ""
+    if "proj_desc" not in st.session_state: st.session_state.proj_desc = ""
+
+    st.text_input("On which project do you wish to work?", placeholder="e.g. smart habit tracker", key="proj_title")
+    
     c1, c2 = st.columns([3,2])
     with c1:
-        new_project_description = st.text_input("Description", placeholder="Add a brief description (optional)")
+        st.text_input("Description", placeholder="Add a brief description (optional)", key="proj_desc")
     with c2:
-        priority = st.selectbox("Priority", ["High", "Medium", "Low"], index=1) # Default Medium
+        st.selectbox("Priority", ["High", "Medium", "Low"], index=1, key="proj_priority")
 
-    if st.button("Add Project", use_container_width=False,type="primary"):
-        if new_project:
-            if add_project(new_project, new_project_description,priority.lower()):
-                st.toast("Project added!")
-                st.rerun()
+    st.button("Add Project", width='content', type="primary", on_click=add_project_callback)
         
     st.divider()
-
+    
     # List Projects
     projects = get_projects(pending_only=True)
     if projects.empty:
@@ -235,17 +301,20 @@ elif selected_tab == "🗂️ Add Project":
     else:
         st.subheader("⚠️ Pending Projects")
         for idx, row in projects.iterrows():
-            # Styling based on priority
-            p_color = "#FFCDD2" if row['priority'] == 'high' else "#E1BEE7" if row['priority'] == 'medium' else "#C8E6C9"
+            # Determine icon for CSS
             p_emoji = "🟥" if row['priority'] == 'high' else "🟨" if row['priority'] == 'medium' else "🟩"
             
-            with st.container():
+            with st.container(border=True):
                 rc1, rc2 = st.columns([6, 1])
                 
-                rc1.markdown(f" <b style='font-size: 1.5rem;'>{p_emoji} {row['text']}</b>", unsafe_allow_html=True)
-                if rc2.button("Mark as Done", key=f"project_done_{row['id']}", help="Mark as Done"):
-                    update_project_status(row['id'], True)
-                    st.rerun()
+                with rc1:
+                    st.markdown(f"**{p_emoji} {row['text']}**")
+                    if row['description']:
+                        st.caption(row['description'])
+                with rc2:
+                    if st.button("Done", key=f"project_done_{row['id']}", help="Mark as Done"):
+                        update_project_status(row['id'], True)
+                        st.rerun()
             st.divider()
 
 elif selected_tab == "📊 Analytics":
@@ -254,49 +323,107 @@ elif selected_tab == "📊 Analytics":
     render_analytics(habits, logs)
 
 elif selected_tab == "⚙️ Settings":
-    st.write("### Manage Habits")
-    habits = load_habits()
+    st.header("⚙️ Habit Management Center")
+    st.caption("Manage your data, clear old tasks, and organize your workspace.")
     
-    if "edit_mode_id" not in st.session_state:
-        st.session_state.edit_mode_id = None
+    # 3 Sub-tabs for content
+    tab_habits, tab_reminders, tab_projects = st.tabs(["✨ Habits", "📝 Reminders", "🗂️ Projects"])
+    
+    # --- HABITS MANAGEMENT ---
+    with tab_habits:
+        habits = load_habits()
+        if "edit_mode_id" not in st.session_state:
+            st.session_state.edit_mode_id = None
 
-    if habits.empty:
-        st.write("No habits to manage.")
-    else:
-        # If in edit mode, show the edit form for that habit
-        if st.session_state.edit_mode_id:
-            habit_to_edit = habits[habits['id'] == st.session_state.edit_mode_id].iloc[0]
-            
-            if st.button("← Back to List"):
-                st.session_state.edit_mode_id = None
-                st.rerun()
+        if habits.empty:
+            st.info("No habits to manage yet.")
+        else:
+            # Edit Mode Logic
+            if st.session_state.edit_mode_id:
+                habit_to_edit = habits[habits['id'] == st.session_state.edit_mode_id].iloc[0]
                 
-            from src.ui_components import render_edit_habit_form
-            updated_data = render_edit_habit_form(habit_to_edit['id'], habit_to_edit)
-            
-            if updated_data:
-                if edit_habit(habit_to_edit['id'], updated_data):
-                    st.success("Habit updated successfully!")
+                if st.button("← Back to List", key="back_edit"):
                     st.session_state.edit_mode_id = None
                     st.rerun()
-                else:
-                    st.error("Failed to update habit.")
                     
-        else:
-            # List View
-            for index, habit in habits.iterrows():
-                # Use a container for better layout
-                with st.container():
-                    c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-                    c1.write(f"**{habit['name']}**")
-                    c2.caption(f"{habit['frequency_type']}")
-                    
-                    if c3.button("Edit", key=f"edit_{habit['id']}"):
-                        st.session_state.edit_mode_id = habit['id']
+                from src.ui_components import render_edit_habit_form
+                updated_data = render_edit_habit_form(habit_to_edit['id'], habit_to_edit)
+                
+                if updated_data:
+                    if edit_habit(habit_to_edit['id'], updated_data):
+                        st.success("Habit updated successfully!")
+                        st.session_state.edit_mode_id = None
                         st.rerun()
+                    else:
+                        st.error("Failed to update habit.")
+            else:
+                # List Mode
+                for index, habit in habits.iterrows():
+                    with st.container(border=True):
+                        c1, c2 = st.columns([4, 1])
+                        with c1:
+                            st.markdown(f"**{habit['name']}**")
+                            st.caption(f"{habit['category']} • {habit['frequency_type']}")
+                        with c2:
+                            # Use smaller columns for buttons
+                            b1, b2 = st.columns(2)
+                            with b1:
+                                if st.button("✏️", key=f"edit_{habit['id']}", help="Edit Habit"):
+                                    st.session_state.edit_mode_id = habit['id']
+                                    st.rerun()
+                            with b2:
+                                if st.button("🗑️", key=f"del_{habit['id']}", help="Delete Habit"):
+                                    if delete_habit(habit['id']):
+                                        st.success("Deleted!")
+                                        st.rerun()
+
+    # --- REMINDERS MANAGEMENT ---
+    with tab_reminders:
+        # Get ALL reminders (active + completed) to allow cleanup
+        reminders = get_reminders(pending_only=False)
+        if reminders.empty:
+            st.info("No reminders found.")
+        else:
+            for index, row in reminders.iterrows():
+                with st.container(border=True):
+                    c1, c2 = st.columns([5, 1])
+                    with c1:
+                        # Status Icon
+                        is_done = row['is_completed'] == 1
+                        status = "✅" if is_done else "⏳"
+                        priority_icon = "🚨" if row['priority'] == 'high' else "⚠️" if row['priority'] == 'medium' else "🟢"
                         
-                    if c4.button("Delete", key=f"del_{habit['id']}"):
-                        if delete_habit(habit['id']):
-                            st.success("Deleted!")
-                            st.rerun()
-                    st.divider()
+                        st.markdown(f"**{priority_icon} {row['text']}**")
+                        st.caption(f"Status: {status} • {'Completed' if is_done else 'Pending'}")
+                        
+                    with c2:
+                        st.write("") # Align
+                        if st.button("🗑️", key=f"del_rem_{row['id']}", help="Delete Reminder"):
+                            if delete_reminder(row['id']):
+                                st.rerun()
+
+    # --- PROJECTS MANAGEMENT ---
+    with tab_projects:
+        from src.data_manager import delete_project
+        projects = get_projects(pending_only=False)
+        if projects.empty:
+            st.info("No projects found.")
+        else:
+            for index, row in projects.iterrows():
+                with st.container(border=True):
+                    c1, c2 = st.columns([5, 1])
+                    with c1:
+                        is_done = row['is_completed'] == 1
+                        status = "✅" if is_done else "⏳"
+                        p_emoji = "🟥" if row['priority'] == 'high' else "🟨" if row['priority'] == 'medium' else "🟩"
+                        
+                        st.markdown(f"**{p_emoji} {row['text']}**")
+                        if row['description']:
+                            st.caption(row['description'])
+                        st.caption(f"Status: {status}")
+                        
+                    with c2:
+                        st.write("")
+                        if st.button("🗑️", key=f"del_proj_{row['id']}", help="Delete Project"):
+                            if delete_project(row['id']):
+                                st.rerun()
