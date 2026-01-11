@@ -79,9 +79,14 @@ def update_user_progress(xp_delta, new_badges=None):
     
     db.user_progress.update_one(
         {"_id": 1},
-        {"$set": {"total_xp": new_xp, "unlocked_badges": badges}}
+        {"$set": {"total_xp": new_xp, "unlocked_badges": badges}},
+        upsert=True
     )
     return new_xp, badges
+
+# Automatically init when imported
+init_db()
+init_gamification_db()
 
 # --- HABITS ---
 def load_habits(active_only=True):
