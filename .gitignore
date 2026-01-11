@@ -39,3 +39,12 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Local Persistence (Exclude from Repo)
+src/db_sqlite.py
+data/
+
+# Temporary Tests
+verify_mongo.py
+debug_mongo_habits.py
+debug_habit_due.py
