@@ -175,7 +175,7 @@ def render_analytics(habits, logs):
         if not missed_df.empty:
             st.dataframe(
                 missed_df[['Habit', 'Missed', 'Miss Rate']].style.format({"Miss Rate": "{:.1f}%"}),
-                width="stretch",
+                use_container_width=True,
                 hide_index=True
             )
         else:
@@ -191,7 +191,7 @@ def render_analytics(habits, logs):
             fig = px.bar(day_stats, x='Day', y='Completions', 
                          color='Completions', color_continuous_scale='Viridis')
             fig.update_layout(xaxis_title=None, yaxis_title=None, showlegend=False, height=300)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Not enough data to show weekly rhythm.")
 
@@ -202,6 +202,6 @@ def render_analytics(habits, logs):
     if not df_metrics.empty:
         st.dataframe(
             df_metrics.sort_values("Completion Rate", ascending=False).style.format({"Completion Rate": "{:.1f}%"}),
-            width="stretch",
+            use_container_width=True,
             hide_index=True
         )
