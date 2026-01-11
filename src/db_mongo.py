@@ -14,6 +14,8 @@ load_dotenv()
 CLIENT = None
 DB = None
 
+import certifi
+
 def get_db():
     global CLIENT, DB
     if DB is None:
@@ -22,9 +24,13 @@ def get_db():
             st.error("MONGO_URI not found in .env")
             return None
         try:
-            CLIENT = MongoClient(uri)
+            # Added tlsCAFile for Windows SSL handshake issues
+            CLIENT = MongoClient(uri, tlsCAFile=certifi.where())
             # Default DB name or from URI
-            db_name = uri.split("/")[-1].split("?")[0] or "habit_tracker"
+            # Safe way to get DB name from cluster URI
+            db_name = "habit_tracker" # Default
+            if "/" in uri.split("://")[-1]:
+                db_name = uri.split("/")[-1].split("?")[0] or "habit_tracker"
             DB = CLIENT[db_name]
         except Exception as e:
             st.error(f"Failed to connect to MongoDB: {e}")
