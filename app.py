@@ -10,6 +10,7 @@ from src.ui_components import render_add_habit_form, render_habit_card, render_e
 from src.analytics import render_analytics
 from src.ml_logic import get_motivational_message, get_smart_suggestions
 from src.utils import is_habit_due
+from src.auth import check_password
 
 st.set_page_config(
     page_title="Smart Habit Tracker",
@@ -17,6 +18,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Authentication Gate
+if not check_password():
+    st.stop()
 
 st.title("✨ Smart Habit Tracker")
 
